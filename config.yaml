@@ -18,7 +18,7 @@ hassio_api: true
 hassio_role: admin
 panel_icon: mdi:lightbulb-group
 panel_title: Shelly Manager
-image: ghcr.io/filmgarage/shelly-ha-manager-{arch}
+# image: ghcr.io/filmgarage/shelly-ha-manager-{arch}
 options:
   admin_password: ""
 schema:
