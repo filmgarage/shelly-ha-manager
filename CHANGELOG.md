@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.0.2] - 2025-10-26
+
+### Fixed
+- 🔧 **HA API Connection** - Improved Home Assistant API integration
+- 📊 **Better Logging** - Extensive debug logging for troubleshooting HA connection
+- 🔍 **Debug Endpoint** - Added `/api/debug` to test HA API connectivity
+- 🎯 **Dual Method** - Try device registry first, fallback to entity-based discovery
+- ✅ **Connection Test** - Test HA API before attempting device discovery
+
+### Added
+- `/api/debug` endpoint to check HA API connection status
+- Detailed logging for each step of device discovery
+- `get_all_devices()` method using device registry (more reliable)
+- Connection test before scanning
+
+## [1.0.1] - 2025-10-26
+
+### Changed
+- 🔧 **Local Build** - Add-on now builds locally in Home Assistant (no pre-built images)
+- 🗑️ **Removed GitHub Actions** - No need for GHCR uploads, simpler deployment
+
 ## [1.0.0] - 2025-10-26
 
 ### 🎉 Initial Release
