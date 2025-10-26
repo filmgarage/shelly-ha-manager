@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.0.2] - 2025-10-26
+## [0.0.2] - 2025-10-26
 
 ### Fixed
 - 🔧 **HA API Connection** - Improved Home Assistant API integration
@@ -15,13 +15,13 @@
 - `get_all_devices()` method using device registry (more reliable)
 - Connection test before scanning
 
-## [1.0.1] - 2025-10-26
+## [0.0.1] - 2025-10-26
 
 ### Changed
 - 🔧 **Local Build** - Add-on now builds locally in Home Assistant (no pre-built images)
 - 🗑️ **Removed GitHub Actions** - No need for GHCR uploads, simpler deployment
 
-## [1.0.0] - 2025-10-26
+## [0.0.0] - 2025-10-26
 
 ### 🎉 Initial Release
 
