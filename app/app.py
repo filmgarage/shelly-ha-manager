@@ -1,6 +1,7 @@
 from flask import Flask, render_template, jsonify, request
 import os
 import logging
+import requests
 
 from ha_client import HomeAssistantClient
 from shelly_gen1 import ShellyGen1Client
@@ -102,29 +103,114 @@ def health():
     return jsonify({'status': 'ok'}), 200
 
 
+@app.route('/api/debug')
+def debug():
+    """Debug endpoint to check HA API connection"""
+    logger.info("=== DEBUG: Testing HA API Connection ===")
+    
+    result = {
+        'supervisor_token_present': bool(os.environ.get('SUPERVISOR_TOKEN')),
+        'ha_api_reachable': False,
+        'entities_count': 0,
+        'device_registry_accessible': False,
+        'shelly_entities_count': 0
+    }
+    
+    try:
+        # Test basic connection
+        result['ha_api_reachable'] = ha_client.test_connection()
+        
+        # Try to get entities
+        try:
+            response = requests.get(
+                f'{ha_client.ha_url}/api/states',
+                headers=ha_client.headers,
+                timeout=5
+            )
+            if response.status_code == 200:
+                entities = response.json()
+                result['entities_count'] = len(entities)
+                
+                # Count Shelly entities
+                shelly_count = sum(1 for e in entities if 'shelly' in e.get('entity_id', '').lower())
+                result['shelly_entities_count'] = shelly_count
+        except Exception as e:
+            result['entities_error'] = str(e)
+        
+        # Try device registry
+        try:
+            response = requests.get(
+                f'{ha_client.ha_url}/api/config/device_registry/list',
+                headers=ha_client.headers,
+                timeout=5
+            )
+            result['device_registry_accessible'] = (response.status_code == 200)
+            if response.status_code == 200:
+                devices = response.json()
+                result['device_registry_count'] = len(devices)
+        except Exception as e:
+            result['device_registry_error'] = str(e)
+        
+    except Exception as e:
+        result['error'] = str(e)
+    
+    logger.info(f"Debug result: {result}")
+    return jsonify(result)
+
+
 @app.route('/api/scan')
 def scan():
     """Get Shelly devices from Home Assistant"""
     logger.info("=== SCANNING FOR DEVICES FROM HOME ASSISTANT ===")
     
     try:
-        # Get devices from HA
-        devices = ha_client.get_shelly_devices()
+        # First, test HA API connection
+        if not ha_client.test_connection():
+            logger.error("❌ Cannot connect to Home Assistant API")
+            return jsonify({
+                'error': 'Cannot connect to Home Assistant API',
+                'details': 'Check add-on logs for more information'
+            }), 500
+        
+        # Try method 1: Get from device registry (most reliable)
+        logger.info("Method 1: Trying device registry...")
+        devices = ha_client.get_all_devices()
+        
+        # If device registry doesn't work, try method 2: entity-based
+        if not devices:
+            logger.info("Method 2: Trying entity-based discovery...")
+            devices = ha_client.get_shelly_devices()
+        
         logger.info(f"Found {len(devices)} devices from Home Assistant")
         
-        # Enrich each device with live Shelly data
-        enriched_devices = []
-        for device in devices:
-            logger.info(f"Enriching device: {device.get('name')} at {device.get('ip')}")
-            enriched = enrich_device_info(device)
-            enriched_devices.append(enriched)
-        
-        logger.info(f"Returning {len(enriched_devices)} enriched devices")
-        return jsonify(enriched_devices)
+        # If we found devices, enrich them with live data
+        if devices:
+            enriched_devices = []
+            for device in devices:
+                logger.info(f"Enriching device: {device.get('name')} at {device.get('ip')}")
+                
+                # Only enrich if we have an IP
+                if device.get('ip'):
+                    enriched = enrich_device_info(device)
+                    enriched_devices.append(enriched)
+                else:
+                    logger.warning(f"Device {device.get('name')} has no IP address - skipping enrichment")
+                    # Still add it, but mark as no IP
+                    device['error'] = 'No IP address found'
+                    enriched_devices.append(device)
+            
+            logger.info(f"Returning {len(enriched_devices)} devices")
+            return jsonify(enriched_devices)
+        else:
+            logger.warning("No Shelly devices found in Home Assistant")
+            return jsonify([])
         
     except Exception as e:
         logger.error(f"Error scanning devices: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        return jsonify({
+            'error': str(e),
+            'details': 'Check add-on logs for more information'
+        }), 500
 
 
 @app.route('/api/device/<ip>')
