@@ -28,204 +28,117 @@ class HomeAssistantClient:
         logger.info("=" * 60)
         
         try:
-            # Step 1: Get all states (entities)
-            logger.info("Step 1: Fetching all entities from HA...")
-            response = requests.get(
-                f'{self.ha_url}/api/states',
-                headers=self.headers,
-                timeout=10
-            )
+            # Get all config entries first
+            logger.info("Step 1: Fetching config entries...")
+            config_entries = self.get_config_entries()
+            logger.info(f"✓ Found {len(config_entries)} config entries")
             
-            logger.info(f"Response status: {response.status_code}")
+            # Filter for Shelly entries
+            shelly_entries = [e for e in config_entries if e.get('domain') == 'shelly']
+            logger.info(f"✓ Found {len(shelly_entries)} Shelly config entries")
             
-            if response.status_code != 200:
-                logger.error(f"Failed to get entities: {response.status_code}")
-                logger.error(f"Response: {response.text}")
-                return []
+            # Get device registry
+            logger.info("Step 2: Fetching device registry...")
+            devices = self.get_device_registry()
+            logger.info(f"✓ Found {len(devices)} devices in registry")
             
-            entities = response.json()
-            logger.info(f"✓ Found {len(entities)} total entities")
+            # Match Shelly devices with their config entries
+            shelly_devices = []
             
-            # Step 2: Find Shelly entities
-            shelly_entities = []
-            for entity in entities:
-                attributes = entity.get('attributes', {})
+            for device in devices:
+                manufacturer = device.get('manufacturer', '').lower()
+                model = device.get('model', '').lower()
+                name = device.get('name', '').lower()
                 
-                # Check for Shelly integration
-                # Entities from Shelly integration have specific attributes
-                friendly_name = attributes.get('friendly_name', '')
-                device_class = attributes.get('device_class', '')
-                
-                # Check if entity_id contains 'shelly' or if it's from Shelly integration
-                entity_id = entity.get('entity_id', '')
-                
-                if 'shelly' in entity_id.lower() or 'shelly' in friendly_name.lower():
-                    shelly_entities.append(entity)
+                if 'shelly' in manufacturer or 'shelly' in model or 'shelly' in name:
+                    # Get config entry for this device
+                    config_entry_ids = device.get('config_entries', [])
+                    
+                    ip_address = None
+                    mac_address = None
+                    
+                    # Extract MAC from connections
+                    connections = device.get('connections', [])
+                    for conn_type, conn_value in connections:
+                        if conn_type == 'mac':
+                            mac_address = conn_value
+                    
+                    # Try to get IP from config entries
+                    for entry_id in config_entry_ids:
+                        # Find matching config entry
+                        matching_entry = next((e for e in shelly_entries if e.get('entry_id') == entry_id), None)
+                        if matching_entry:
+                            # Extract IP from config entry data
+                            entry_data = matching_entry.get('data', {})
+                            ip_address = entry_data.get('host') or entry_data.get('ip_address')
+                            
+                            if ip_address:
+                                logger.info(f"✓ Found IP for {device.get('name')}: {ip_address}")
+                                break
+                    
+                    if not ip_address:
+                        logger.warning(f"⚠ No IP found for {device.get('name')} (MAC: {mac_address})")
+                    
+                    shelly_devices.append({
+                        'id': device.get('id'),
+                        'name': device.get('name', 'Unknown'),
+                        'model': device.get('model', 'Unknown'),
+                        'manufacturer': device.get('manufacturer', 'Shelly'),
+                        'sw_version': device.get('sw_version', ''),
+                        'ip': ip_address,
+                        'mac': mac_address,
+                        'identifiers': device.get('identifiers', [])
+                    })
             
-            logger.info(f"✓ Found {len(shelly_entities)} Shelly entities")
-            
-            if shelly_entities:
-                logger.info("Sample Shelly entity:")
-                sample = shelly_entities[0]
-                logger.info(f"  - entity_id: {sample.get('entity_id')}")
-                logger.info(f"  - friendly_name: {sample.get('attributes', {}).get('friendly_name')}")
-            
-            # Step 3: Get unique devices from entities
-            devices_map = {}
-            
-            for entity in shelly_entities:
-                attributes = entity.get('attributes', {})
-                
-                # Try to get device info from entity attributes
-                # Many HA integrations store device info in entity attributes
-                device_name = attributes.get('friendly_name', 'Unknown Device')
-                
-                # Extract IP from entity_id or attributes
-                entity_id = entity.get('entity_id', '')
-                
-                # Try to find IP in entity_id (e.g., switch.shellyplus1_aabbccddee)
-                # Or look in attributes
-                device_id = None
-                ip_address = None
-                
-                # Some Shelly entities have IP in their unique_id or entity_id
-                if 'shelly' in entity_id:
-                    # Extract device identifier from entity_id
-                    parts = entity_id.split('.')
-                    if len(parts) > 1:
-                        device_part = parts[1]
-                        # Extract the unique part (like shellyplus1_aabbccddee)
-                        device_id = device_part
-                
-                # Try to find the device in device registry
-                if device_id and device_id not in devices_map:
-                    device_info = self.get_device_by_entity_attributes(entity)
-                    if device_info:
-                        devices_map[device_id] = device_info
-            
-            logger.info(f"✓ Found {len(devices_map)} unique Shelly devices")
+            logger.info(f"✓ Returning {len(shelly_devices)} Shelly devices")
+            logger.info(f"  - With IP: {sum(1 for d in shelly_devices if d.get('ip'))}")
+            logger.info(f"  - Without IP: {sum(1 for d in shelly_devices if not d.get('ip'))}")
             logger.info("=" * 60)
             
-            return list(devices_map.values())
+            return shelly_devices
             
         except Exception as e:
             logger.error(f"❌ Error getting Shelly devices: {e}", exc_info=True)
             logger.info("=" * 60)
             return []
     
-    def get_device_by_entity_attributes(self, entity):
-        """Try to extract device info from entity attributes"""
+    def get_config_entries(self):
+        """Get all config entries from Home Assistant"""
         try:
-            attributes = entity.get('attributes', {})
-            entity_id = entity.get('entity_id', '')
+            response = requests.get(
+                f'{self.ha_url}/api/config/config_entries/list',
+                headers=self.headers,
+                timeout=10
+            )
             
-            # Get device name
-            device_name = attributes.get('friendly_name', 'Unknown')
-            
-            # Try to extract IP - this varies by integration
-            # Some options:
-            # 1. Check for 'host' in attributes
-            # 2. Check for 'ip_address' in attributes  
-            # 3. Use the entity registry to find the device
-            
-            # For now, we'll need to query the device registry
-            # via the config/device_registry API
-            
-            return {
-                'name': device_name,
-                'entity_id': entity_id,
-                'ip': None,  # Will be populated if we can find it
-                'model': 'Unknown',
-                'manufacturer': 'Shelly',
-                'sw_version': '',
-                'mac': None,
-                'id': entity_id
-            }
-            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.warning(f"Could not get config entries: {response.status_code}")
+                return []
+                
         except Exception as e:
-            logger.error(f"Error extracting device info from entity: {e}")
-            return None
+            logger.error(f"Error getting config entries: {e}")
+            return []
     
-    def get_all_devices(self):
-        """Get all devices from HA device registry"""
-        logger.info("Fetching device registry from HA...")
-        
+    def get_device_registry(self):
+        """Get device registry from Home Assistant"""
         try:
-            # Try the websocket API approach via REST
             response = requests.get(
                 f'{self.ha_url}/api/config/device_registry/list',
                 headers=self.headers,
                 timeout=10
             )
             
-            logger.info(f"Device registry response: {response.status_code}")
-            
             if response.status_code == 200:
-                devices = response.json()
-                logger.info(f"✓ Found {len(devices)} devices in registry")
-                
-                # Filter for Shelly devices
-                shelly_devices = []
-                for device in devices:
-                    manufacturer = device.get('manufacturer', '').lower()
-                    model = device.get('model', '').lower()
-                    name = device.get('name', '').lower()
-                    
-                    if 'shelly' in manufacturer or 'shelly' in model or 'shelly' in name:
-                        # Extract IP from connections
-                        connections = device.get('connections', [])
-                        ip_address = None
-                        mac_address = None
-                        
-                        for conn_type, conn_value in connections:
-                            if conn_type == 'mac':
-                                mac_address = conn_value
-                        
-                        # Try to get IP from config entries
-                        config_entries = device.get('config_entries', [])
-                        if config_entries:
-                            entry_id = config_entries[0]
-                            ip_address = self.get_ip_from_config_entry(entry_id)
-                        
-                        shelly_devices.append({
-                            'id': device.get('id'),
-                            'name': device.get('name', 'Unknown'),
-                            'model': device.get('model', 'Unknown'),
-                            'manufacturer': device.get('manufacturer', 'Shelly'),
-                            'sw_version': device.get('sw_version', ''),
-                            'ip': ip_address,
-                            'mac': mac_address
-                        })
-                
-                logger.info(f"✓ Found {len(shelly_devices)} Shelly devices")
-                return shelly_devices
+                return response.json()
             else:
-                logger.warning(f"Could not access device registry: {response.status_code}")
+                logger.warning(f"Could not get device registry: {response.status_code}")
                 return []
-            
+                
         except Exception as e:
-            logger.error(f"Error getting device registry: {e}", exc_info=True)
+            logger.error(f"Error getting device registry: {e}")
             return []
-    
-    def get_ip_from_config_entry(self, entry_id):
-        """Get IP address from a config entry"""
-        try:
-            # This endpoint might not work - depends on HA version
-            response = requests.get(
-                f'{self.ha_url}/api/config/config_entries/entry/{entry_id}',
-                headers=self.headers,
-                timeout=5
-            )
-            
-            if response.status_code == 200:
-                entry = response.json()
-                data = entry.get('data', {})
-                return data.get('host') or data.get('ip_address')
-            
-        except Exception as e:
-            logger.debug(f"Could not get IP from config entry: {e}")
-        
-        return None
     
     def test_connection(self):
         """Test if we can connect to HA API"""

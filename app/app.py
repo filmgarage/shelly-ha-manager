@@ -111,45 +111,68 @@ def debug():
     result = {
         'supervisor_token_present': bool(os.environ.get('SUPERVISOR_TOKEN')),
         'ha_api_reachable': False,
-        'entities_count': 0,
-        'device_registry_accessible': False,
-        'shelly_entities_count': 0
+        'config_entries_count': 0,
+        'shelly_config_entries_count': 0,
+        'device_registry_count': 0,
+        'shelly_devices_count': 0
     }
     
     try:
         # Test basic connection
         result['ha_api_reachable'] = ha_client.test_connection()
         
-        # Try to get entities
+        # Try to get config entries
         try:
-            response = requests.get(
-                f'{ha_client.ha_url}/api/states',
-                headers=ha_client.headers,
-                timeout=5
-            )
-            if response.status_code == 200:
-                entities = response.json()
-                result['entities_count'] = len(entities)
-                
-                # Count Shelly entities
-                shelly_count = sum(1 for e in entities if 'shelly' in e.get('entity_id', '').lower())
-                result['shelly_entities_count'] = shelly_count
+            config_entries = ha_client.get_config_entries()
+            result['config_entries_count'] = len(config_entries)
+            
+            # Count Shelly config entries
+            shelly_entries = [e for e in config_entries if e.get('domain') == 'shelly']
+            result['shelly_config_entries_count'] = len(shelly_entries)
+            
+            # Show sample entry (without sensitive data)
+            if shelly_entries:
+                sample = shelly_entries[0]
+                result['sample_shelly_entry'] = {
+                    'domain': sample.get('domain'),
+                    'title': sample.get('title'),
+                    'has_host': bool(sample.get('data', {}).get('host')),
+                    'entry_id': sample.get('entry_id')
+                }
         except Exception as e:
-            result['entities_error'] = str(e)
+            result['config_entries_error'] = str(e)
         
         # Try device registry
         try:
-            response = requests.get(
-                f'{ha_client.ha_url}/api/config/device_registry/list',
-                headers=ha_client.headers,
-                timeout=5
-            )
-            result['device_registry_accessible'] = (response.status_code == 200)
-            if response.status_code == 200:
-                devices = response.json()
-                result['device_registry_count'] = len(devices)
+            devices = ha_client.get_device_registry()
+            result['device_registry_count'] = len(devices)
+            
+            # Count Shelly devices
+            shelly_devices = [d for d in devices 
+                            if 'shelly' in d.get('manufacturer', '').lower() 
+                            or 'shelly' in d.get('model', '').lower()
+                            or 'shelly' in d.get('name', '').lower()]
+            result['shelly_devices_count'] = len(shelly_devices)
+            
+            # Show sample device
+            if shelly_devices:
+                sample = shelly_devices[0]
+                result['sample_shelly_device'] = {
+                    'name': sample.get('name'),
+                    'model': sample.get('model'),
+                    'has_config_entries': len(sample.get('config_entries', [])) > 0
+                }
         except Exception as e:
             result['device_registry_error'] = str(e)
+        
+        # Try full device discovery
+        try:
+            devices = ha_client.get_shelly_devices()
+            result['discovered_devices'] = len(devices)
+            result['discovered_with_ip'] = sum(1 for d in devices if d.get('ip'))
+            result['discovered_without_ip'] = sum(1 for d in devices if not d.get('ip'))
+        except Exception as e:
+            result['discovery_error'] = str(e)
         
     except Exception as e:
         result['error'] = str(e)
@@ -172,14 +195,8 @@ def scan():
                 'details': 'Check add-on logs for more information'
             }), 500
         
-        # Try method 1: Get from device registry (most reliable)
-        logger.info("Method 1: Trying device registry...")
-        devices = ha_client.get_all_devices()
-        
-        # If device registry doesn't work, try method 2: entity-based
-        if not devices:
-            logger.info("Method 2: Trying entity-based discovery...")
-            devices = ha_client.get_shelly_devices()
+        # Get devices from HA (now includes IP addresses from config entries)
+        devices = ha_client.get_shelly_devices()
         
         logger.info(f"Found {len(devices)} devices from Home Assistant")
         
@@ -187,19 +204,24 @@ def scan():
         if devices:
             enriched_devices = []
             for device in devices:
-                logger.info(f"Enriching device: {device.get('name')} at {device.get('ip')}")
+                ip = device.get('ip')
+                name = device.get('name', 'Unknown')
                 
-                # Only enrich if we have an IP
-                if device.get('ip'):
+                if ip:
+                    logger.info(f"Enriching device: {name} at {ip}")
                     enriched = enrich_device_info(device)
                     enriched_devices.append(enriched)
                 else:
-                    logger.warning(f"Device {device.get('name')} has no IP address - skipping enrichment")
+                    logger.warning(f"Device {name} has no IP address - skipping enrichment")
                     # Still add it, but mark as no IP
                     device['error'] = 'No IP address found'
+                    device['type'] = device.get('model', 'Unknown')
+                    device['fw'] = device.get('sw_version', 'Unknown')
                     enriched_devices.append(device)
             
             logger.info(f"Returning {len(enriched_devices)} devices")
+            logger.info(f"  - With IP: {sum(1 for d in enriched_devices if d.get('ip'))}")
+            logger.info(f"  - Enriched: {sum(1 for d in enriched_devices if d.get('generation'))}")
             return jsonify(enriched_devices)
         else:
             logger.warning("No Shelly devices found in Home Assistant")
