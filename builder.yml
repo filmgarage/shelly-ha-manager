@@ -1,0 +1,34 @@
+name: Builder
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    name: Build add-on
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Get add-on information
+        id: info
+        uses: home-assistant/actions/helpers/info@master
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build add-on
+        uses: home-assistant/builder@master
+        with:
+          args: |
+            --all \
+            --target . \
+            --docker-hub ghcr.io/${{ github.repository_owner }}
