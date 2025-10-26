@@ -105,72 +105,74 @@ def health():
 
 @app.route('/api/debug')
 def debug():
-    """Debug endpoint to check HA API connection"""
+    """Debug endpoint to check HA API connection and show sample data"""
     logger.info("=== DEBUG: Testing HA API Connection ===")
     
     result = {
         'supervisor_token_present': bool(os.environ.get('SUPERVISOR_TOKEN')),
         'ha_api_reachable': False,
-        'config_entries_count': 0,
-        'shelly_config_entries_count': 0,
-        'device_registry_count': 0,
-        'shelly_devices_count': 0
+        'total_entities': 0,
+        'shelly_entities_count': 0,
+        'sample_shelly_entities': []
     }
     
     try:
         # Test basic connection
         result['ha_api_reachable'] = ha_client.test_connection()
         
-        # Try to get config entries
+        # Get all states
         try:
-            config_entries = ha_client.get_config_entries()
-            result['config_entries_count'] = len(config_entries)
+            response = requests.get(
+                f'{ha_client.ha_url}/api/states',
+                headers=ha_client.headers,
+                timeout=10
+            )
             
-            # Count Shelly config entries
-            shelly_entries = [e for e in config_entries if e.get('domain') == 'shelly']
-            result['shelly_config_entries_count'] = len(shelly_entries)
-            
-            # Show sample entry (without sensitive data)
-            if shelly_entries:
-                sample = shelly_entries[0]
-                result['sample_shelly_entry'] = {
-                    'domain': sample.get('domain'),
-                    'title': sample.get('title'),
-                    'has_host': bool(sample.get('data', {}).get('host')),
-                    'entry_id': sample.get('entry_id')
-                }
+            if response.status_code == 200:
+                entities = response.json()
+                result['total_entities'] = len(entities)
+                
+                # Find Shelly entities
+                shelly_entities = []
+                for entity in entities:
+                    entity_id = entity.get('entity_id', '')
+                    attributes = entity.get('attributes', {})
+                    
+                    if 'shelly' in entity_id.lower() or 'shelly' in attributes.get('friendly_name', '').lower():
+                        shelly_entities.append(entity)
+                
+                result['shelly_entities_count'] = len(shelly_entities)
+                
+                # Show up to 3 sample entities with their full structure
+                for i, entity in enumerate(shelly_entities[:3]):
+                    result['sample_shelly_entities'].append({
+                        'entity_id': entity.get('entity_id'),
+                        'friendly_name': entity.get('attributes', {}).get('friendly_name'),
+                        'state': entity.get('state'),
+                        'attributes_keys': list(entity.get('attributes', {}).keys()),
+                        'full_attributes': entity.get('attributes', {})
+                    })
+                
         except Exception as e:
-            result['config_entries_error'] = str(e)
+            result['entities_error'] = str(e)
         
-        # Try device registry
-        try:
-            devices = ha_client.get_device_registry()
-            result['device_registry_count'] = len(devices)
-            
-            # Count Shelly devices
-            shelly_devices = [d for d in devices 
-                            if 'shelly' in d.get('manufacturer', '').lower() 
-                            or 'shelly' in d.get('model', '').lower()
-                            or 'shelly' in d.get('name', '').lower()]
-            result['shelly_devices_count'] = len(shelly_devices)
-            
-            # Show sample device
-            if shelly_devices:
-                sample = shelly_devices[0]
-                result['sample_shelly_device'] = {
-                    'name': sample.get('name'),
-                    'model': sample.get('model'),
-                    'has_config_entries': len(sample.get('config_entries', [])) > 0
-                }
-        except Exception as e:
-            result['device_registry_error'] = str(e)
-        
-        # Try full device discovery
+        # Try discovery
         try:
             devices = ha_client.get_shelly_devices()
             result['discovered_devices'] = len(devices)
             result['discovered_with_ip'] = sum(1 for d in devices if d.get('ip'))
             result['discovered_without_ip'] = sum(1 for d in devices if not d.get('ip'))
+            
+            # Show sample discovered devices
+            result['sample_discovered'] = [
+                {
+                    'name': d.get('name'),
+                    'ip': d.get('ip'),
+                    'id': d.get('id'),
+                    'entities': d.get('entities', [])
+                }
+                for d in devices[:3]
+            ]
         except Exception as e:
             result['discovery_error'] = str(e)
         
