@@ -42,7 +42,8 @@ class HomeAssistantClient:
             
             for device in device_registry:
                 # Check if it's a Shelly device by manufacturer
-                manufacturer = device.get('manufacturer', '').lower()
+                manufacturer = device.get('manufacturer', '') or ''  # Handle None values
+                manufacturer = manufacturer.lower()
                 if 'shelly' not in manufacturer:
                     continue
                 

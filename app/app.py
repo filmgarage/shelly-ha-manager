@@ -401,11 +401,14 @@ def reboot_device(ip):
 if __name__ == '__main__':
     import sys
     
+    # Get version from environment (set by run.sh from config.yaml)
+    version = os.environ.get('ADDON_VERSION', '0.0.0')
+    
     # Get port from environment (for ingress mode) or use default
     port = int(os.environ.get('INGRESS_PORT', os.environ.get('PORT', 8099)))
     
     print("=" * 50, file=sys.stderr)
-    print("Shelly HA Manager v1.0.0", file=sys.stderr)
+    print(f"Shelly HA Manager v{version}", file=sys.stderr)
     print("=" * 50, file=sys.stderr)
     print(f"Host: 0.0.0.0", file=sys.stderr)
     print(f"Port: {port}", file=sys.stderr)
