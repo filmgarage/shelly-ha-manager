@@ -120,6 +120,41 @@ def debug():
         # Test basic connection
         result['ha_api_reachable'] = ha_client.test_connection()
         
+        # NEW: Test WebSocket device registry access
+        try:
+            logger.info("Testing WebSocket device registry access...")
+            device_registry = ha_client.ws_client.get_device_registry()
+            result['websocket_device_registry_accessible'] = True
+            result['total_devices_in_registry'] = len(device_registry)
+            
+            # Find Shelly devices and show their configuration_url
+            shelly_devices_raw = []
+            for device in device_registry[:50]:  # Check first 50 devices
+                manufacturer = device.get('manufacturer', '').lower()
+                if 'shelly' in manufacturer:
+                    shelly_devices_raw.append(device)
+            
+            result['shelly_devices_in_registry'] = len(shelly_devices_raw)
+            
+            # Show first 3 Shelly devices with full details
+            result['sample_shelly_devices_raw'] = []
+            for device in shelly_devices_raw[:3]:
+                result['sample_shelly_devices_raw'].append({
+                    'id': device.get('id'),
+                    'name': device.get('name'),
+                    'manufacturer': device.get('manufacturer'),
+                    'model': device.get('model'),
+                    'configuration_url': device.get('configuration_url'),  # ← KEY ATTRIBUTE!
+                    'sw_version': device.get('sw_version'),
+                    'identifiers': device.get('identifiers'),
+                    'config_entries': device.get('config_entries'),
+                    'all_keys': list(device.keys())  # Show all available keys
+                })
+            
+        except Exception as e:
+            result['websocket_error'] = str(e)
+            result['websocket_device_registry_accessible'] = False
+        
         # Get all states
         try:
             response = requests.get(
