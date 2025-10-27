@@ -2,6 +2,9 @@
 
 bashio::log.info "Starting Shelly HA Manager..."
 
+# Get version from config.yaml
+export ADDON_VERSION=$(bashio::addon.version)
+
 # Get configuration
 export ADMIN_PASSWORD=$(bashio::config 'admin_password')
 
