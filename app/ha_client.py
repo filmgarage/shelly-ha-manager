@@ -38,75 +38,69 @@ class HomeAssistantClient:
             
             # Build device list from device registry
             shelly_devices = []
+            skipped_count = 0
             
             for device in device_registry:
-                # Check if this is a Shelly device
-                identifiers = device.get('identifiers', [])
-                
-                # Check if it's a Shelly device by manufacturer or identifiers
+                # Check if it's a Shelly device by manufacturer
                 manufacturer = device.get('manufacturer', '').lower()
-                is_shelly = 'shelly' in manufacturer
+                if 'shelly' not in manufacturer:
+                    continue
                 
-                # Also check identifiers
-                if not is_shelly:
-                    for identifier_pair in identifiers:
-                        if isinstance(identifier_pair, list) and len(identifier_pair) >= 2:
-                            if 'shelly' in str(identifier_pair[0]).lower():
-                                is_shelly = True
-                                break
+                # CRITICAL: Filter for actual physical devices
+                # Real Shelly devices have BOTH configuration_url AND model
+                configuration_url = device.get('configuration_url')
+                model = device.get('model')
                 
-                if is_shelly:
-                    device_id = device.get('id')
-                    name = device.get('name') or device.get('name_by_user', 'Unknown')
-                    model = device.get('model', 'Unknown')
-                    sw_version = device.get('sw_version', '')
-                    
-                    # Extract IP from configuration_url
-                    ip_address = None
-                    configuration_url = device.get('configuration_url', '')
-                    
-                    if configuration_url:
-                        # Extract IP from URL like "http://192.168.1.100" or "http://192.168.1.100/"
-                        # Use regex to find IP pattern
-                        import re
-                        ip_match = re.search(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', configuration_url)
-                        if ip_match:
-                            ip_address = ip_match.group(1)
-                            logger.debug(f"Extracted IP {ip_address} from {configuration_url}")
-                    
-                    # Extract MAC address from identifiers
-                    mac_address = 'Unknown'
-                    for identifier_pair in identifiers:
-                        if isinstance(identifier_pair, list) and len(identifier_pair) >= 2:
-                            if identifier_pair[0] == 'shelly':
-                                mac_address = identifier_pair[1].upper()
-                                break
-                    
-                    device_info = {
-                        'id': device_id,
-                        'name': name,
-                        'ip': ip_address,
-                        'model': model,
-                        'sw_version': sw_version,
-                        'mac': mac_address,
-                        'manufacturer': device.get('manufacturer', 'Shelly'),
-                        'type': model,
-                        'fw': sw_version,
-                        'generation': None,  # Will be enriched later
-                        'auth': False  # Will be enriched later
-                    }
-                    
-                    if ip_address:
-                        logger.info(f"✓ Found IP for {name}: {ip_address}")
-                        shelly_devices.append(device_info)
-                    else:
-                        logger.warning(f"⚠ Device {name} has no configuration_url or IP")
-                        logger.debug(f"  Device data: {device}")
-                        # Still add it but mark as no IP
-                        device_info['error'] = 'No IP address found'
-                        shelly_devices.append(device_info)
+                if not configuration_url or not model:
+                    device_name = device.get('name') or device.get('name_by_user', 'Unknown')
+                    logger.debug(f"Skipping non-device entry: {device_name} (has_url={bool(configuration_url)}, has_model={bool(model)})")
+                    skipped_count += 1
+                    continue
+                
+                # Extract IP from configuration_url
+                ip_address = None
+                ip_match = re.search(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', configuration_url)
+                if ip_match:
+                    ip_address = ip_match.group(1)
+                    logger.debug(f"Extracted IP {ip_address} from {configuration_url}")
+                
+                # Use HA-configured name (more user-friendly than device hostname)
+                device_name = device.get('name') or device.get('name_by_user', 'Unknown')
+                
+                # Extract MAC address from identifiers
+                mac_address = 'Unknown'
+                identifiers = device.get('identifiers', [])
+                for identifier_pair in identifiers:
+                    if isinstance(identifier_pair, list) and len(identifier_pair) >= 2:
+                        if identifier_pair[0] == 'shelly':
+                            mac_address = identifier_pair[1].upper()
+                            break
+                
+                # Build device info using HA's data
+                device_info = {
+                    'id': device.get('id'),
+                    'name': device_name,
+                    'ip': ip_address,
+                    'model': model,
+                    'sw_version': device.get('sw_version', ''),
+                    'mac': mac_address,
+                    'manufacturer': device.get('manufacturer', 'Shelly'),
+                    'type': model,  # For display in UI
+                    'fw': device.get('sw_version', ''),  # For display in UI
+                    'generation': None,  # Will be enriched later
+                    'auth': False  # Will be enriched later
+                }
+                
+                if ip_address:
+                    logger.info(f"✓ Device: {device_name} ({model}) at {ip_address}")
+                    shelly_devices.append(device_info)
+                else:
+                    logger.warning(f"⚠ Device {device_name} ({model}) has configuration_url but no IP: {configuration_url}")
+                    # Still add it but mark as no IP
+                    device_info['error'] = f'No IP in configuration_url: {configuration_url}'
+                    shelly_devices.append(device_info)
             
-            logger.info(f"✓ Found {len(shelly_devices)} Shelly devices")
+            logger.info(f"✓ Found {len(shelly_devices)} Shelly devices (skipped {skipped_count} non-device entries)")
             logger.info(f"  - With IP: {sum(1 for d in shelly_devices if d.get('ip'))}")
             logger.info(f"  - Without IP: {sum(1 for d in shelly_devices if not d.get('ip'))}")
             logger.info("=" * 60)
