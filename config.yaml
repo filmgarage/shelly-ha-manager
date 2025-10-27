@@ -1,5 +1,5 @@
 name: Shelly HA Manager
-version: "0.0.5"
+version: "0.0.6"
 slug: shelly_ha_manager
 description: Manage your Shelly devices directly from Home Assistant
 url: "https://github.com/filmgarage/ha-addon-shelly-manager"
