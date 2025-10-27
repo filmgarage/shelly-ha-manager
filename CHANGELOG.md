@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.0.7] - 2025-10-27
+
+### 🔍 Debug Enhancement
+
+Added detailed WebSocket device registry debugging to `/api/debug` endpoint:
+
+- ✅ **WebSocket Device Registry Access** - Shows if WebSocket can access device registry
+- ✅ **Configuration URL Visibility** - Displays `configuration_url` attribute for sample Shelly devices
+- ✅ **Raw Device Data** - Shows all available attributes from device registry
+- ✅ **Better Diagnostics** - Helps verify if configuration_url is accessible
+
+### What's New in Debug Endpoint
+
+The `/api/debug` endpoint now shows:
+```json
+{
+  "websocket_device_registry_accessible": true/false,
+  "total_devices_in_registry": 89,
+  "shelly_devices_in_registry": 12,
+  "sample_shelly_devices_raw": [
+    {
+      "id": "...",
+      "name": "Living Room Light",
+      "configuration_url": "http://192.168.1.100",  ← KEY!
+      "manufacturer": "Allterco Robotics",
+      "model": "SNSW-001X16EU",
+      "all_keys": [...]  ← All available attributes
+    }
+  ]
+}
+```
+
+This helps verify:
+1. Can we access device registry via WebSocket? ✅
+2. Does `configuration_url` exist? ✅
+3. What other attributes are available? ✅
+
+**Use this to diagnose if v0.0.6's approach will work!**
+
 ## [0.0.6] - 2025-10-27
 
 ### 🎯 The Real Fix: configuration_url
