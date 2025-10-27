@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.0.8] - 2025-10-27
+## [0.0.9] - 2025-10-27
 
 ### 🎉 THE SOLUTION THAT WORKS!
 
