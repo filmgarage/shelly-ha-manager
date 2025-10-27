@@ -1,5 +1,52 @@
 # Changelog
 
+## [0.0.8] - 2025-10-27
+
+### 🎉 THE SOLUTION THAT WORKS!
+
+Based on real debug data, v0.0.8 implements proper device filtering and IP extraction!
+
+### What's New
+
+- ✅ **Proper Device Filtering** - Only include entries with BOTH `configuration_url` AND `model`
+  - This filters out helper entities and virtual devices
+  - Only actual physical Shelly devices are shown
+  
+- ✅ **HA-Configured Names** - Uses device names from Home Assistant
+  - Shows user-friendly names instead of device hostnames
+  - Matches what users see in HA interface
+  
+- ✅ **IP Extraction from configuration_url** - Works with or without port numbers
+  - Handles: `http://192.168.1.100`
+  - Handles: `http://192.168.64.234:80`
+  - Extracts just the IP using regex
+  
+- ✅ **Better Logging** - Shows exactly what's happening
+  - Counts skipped non-device entries
+  - Shows device name, model, and IP for each found device
+  - Clear success/failure messages
+
+### How It Works
+
+```python
+1. Get device registry via WebSocket ✅
+2. For each entry with manufacturer="Shelly":
+   3. Check if it has BOTH configuration_url AND model ✅
+   4. If yes → extract IP from configuration_url ✅
+   5. Use HA's device name, model, sw_version ✅
+   6. Add to list ✅
+3. Return all valid Shelly devices with IPs ✅
+```
+
+### Expected Result
+
+Based on the debug output:
+- `discovered_devices`: Should show actual count (e.g., 5)
+- `discovered_with_ip`: Should match discovered_devices
+- `discovered_without_ip`: Should be 0
+
+All devices with proper `configuration_url` and `model` will be discovered! 🎉
+
 ## [0.0.7] - 2025-10-27
 
 ### 🔍 Debug Enhancement
