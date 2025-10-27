@@ -31,38 +31,17 @@ class HomeAssistantClient:
         logger.info("=" * 60)
         
         try:
-            # Step 1: Get device registry via WebSocket
-            logger.info("Step 1: Getting device registry via WebSocket...")
+            # Get device registry via WebSocket
+            logger.info("Getting device registry via WebSocket...")
             device_registry = self.ws_client.get_device_registry()
             logger.info(f"✓ Found {len(device_registry)} devices in registry")
             
-            # Step 2: Get config entries via WebSocket
-            logger.info("Step 2: Getting config entries via WebSocket...")
-            config_entries = self.ws_client.get_config_entries()
-            logger.info(f"✓ Found {len(config_entries)} config entries")
-            
-            # Step 3: Build a map of entry_id -> IP address from config entries
-            entry_ip_map = {}
-            shelly_entry_count = 0
-            for entry in config_entries:
-                if entry.get('domain') == 'shelly':
-                    entry_id = entry.get('entry_id')
-                    # Host is stored in the data field
-                    host = entry.get('data', {}).get('host')
-                    if host and entry_id:
-                        entry_ip_map[entry_id] = host
-                        shelly_entry_count += 1
-                        logger.debug(f"Config entry {entry_id}: {host}")
-            
-            logger.info(f"✓ Found {shelly_entry_count} Shelly config entries")
-            
-            # Step 4: Build device list from device registry
+            # Build device list from device registry
             shelly_devices = []
             
             for device in device_registry:
                 # Check if this is a Shelly device
                 identifiers = device.get('identifiers', [])
-                config_entries_list = device.get('config_entries', [])
                 
                 # Check if it's a Shelly device by manufacturer or identifiers
                 manufacturer = device.get('manufacturer', '').lower()
@@ -82,12 +61,18 @@ class HomeAssistantClient:
                     model = device.get('model', 'Unknown')
                     sw_version = device.get('sw_version', '')
                     
-                    # Try to find IP from config entries
+                    # Extract IP from configuration_url
                     ip_address = None
-                    for entry_id in config_entries_list:
-                        if entry_id in entry_ip_map:
-                            ip_address = entry_ip_map[entry_id]
-                            break
+                    configuration_url = device.get('configuration_url', '')
+                    
+                    if configuration_url:
+                        # Extract IP from URL like "http://192.168.1.100" or "http://192.168.1.100/"
+                        # Use regex to find IP pattern
+                        import re
+                        ip_match = re.search(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', configuration_url)
+                        if ip_match:
+                            ip_address = ip_match.group(1)
+                            logger.debug(f"Extracted IP {ip_address} from {configuration_url}")
                     
                     # Extract MAC address from identifiers
                     mac_address = 'Unknown'
@@ -115,7 +100,8 @@ class HomeAssistantClient:
                         logger.info(f"✓ Found IP for {name}: {ip_address}")
                         shelly_devices.append(device_info)
                     else:
-                        logger.warning(f"⚠ Device {name} has no IP address")
+                        logger.warning(f"⚠ Device {name} has no configuration_url or IP")
+                        logger.debug(f"  Device data: {device}")
                         # Still add it but mark as no IP
                         device_info['error'] = 'No IP address found'
                         shelly_devices.append(device_info)
